@@ -1,365 +1,724 @@
 import React, { useState, useEffect } from 'react'
-import { DndContext, DragOverlay, closestCenter } from '@dnd-kit/core'
+import { DndContext, DragOverlay, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
 import SubjectList from './components/SubjectList'
 import Timetable from './components/Timetable'
 import Header from './components/Header'
 import SubjectForm from './components/SubjectForm'
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { SortableItem } from './components/SortableItem'
 
 // Определение типов
-export interface Subject {
-  id: string
+export interface Teacher {
+  _id: string
+  fullName: string
+  shortName: string
+  department?: string
+  position?: string
+  restrictedDays?: number[]
+}
+
+export interface Group {
+  _id: string
   name: string
-  category: string
-  teacher: string
-  weeklyHours: number // Количество часов в неделю
+  shortName: string
+  faculty?: string
+  year?: number
+}
+
+export interface Subject {
+  _id: string
+  name: string
+  shortName: string
+  hoursPerWeek: number
+  teacherId?: string | Teacher
+  groupId: string | Group
+  restrictedDays?: number[]
 }
 
 export interface ScheduleItem {
-  id: string
-  subjectId: string
-  day: number
-  period: number
+  _id?: string;
+  subjectId: string | { 
+    _id: string; 
+    name: string; 
+    shortName: string; 
+    hoursPerWeek: number;
+    teacherId?: string | Teacher;
+    groupId: string | Group;
+    restrictedDays?: number[];
+  };
+  day: number;
+  period: number;
 }
 
 function App() {
-  // Список доступных предметов
-  const [subjects, setSubjects] = useState<Subject[]>([
-    { id: 'math', name: 'Математика', category: 'Точні науки', teacher: 'Петренко О.В.', weeklyHours: 4 },
-    { id: 'physics', name: 'Фізика', category: 'Точні науки', teacher: 'Коваленко М.І.', weeklyHours: 3 },
-    { id: 'chemistry', name: 'Хімія', category: 'Природничі науки', teacher: 'Шевченко Н.П.', weeklyHours: 2 },
-    { id: 'biology', name: 'Біологія', category: 'Природничі науки', teacher: 'Бондаренко І.С.', weeklyHours: 2 },
-    { id: 'history', name: 'Історія', category: 'Гуманітарні науки', teacher: 'Мельник Т.В.', weeklyHours: 3 },
-    { id: 'literature', name: 'Література', category: 'Гуманітарні науки', teacher: 'Ковальчук О.М.', weeklyHours: 2 },
-    { id: 'english', name: 'Англійська мова', category: 'Мови', teacher: 'Іваненко С.Р.', weeklyHours: 3 },
-    { id: 'ukrainian', name: 'Українська мова', category: 'Мови', teacher: 'Литвиненко В.О.', weeklyHours: 3 },
-    { id: 'art', name: 'Мистецтво', category: 'Мистецтво', teacher: 'Савченко Д.А.', weeklyHours: 1 },
-    { id: 'pe', name: 'Фізкультура', category: 'Інше', teacher: 'Кравчук Р.М.', weeklyHours: 2 },
-  ])
-
-  // Расписание занятий
+  const [subjects, setSubjects] = useState<Subject[]>([])
   const [schedule, setSchedule] = useState<ScheduleItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [activeSubject, setActiveSubject] = useState<Subject | null>(null)
+  const [editingSubject, setEditingSubject] = useState<Subject | null>(null)
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [teachers, setTeachers] = useState<Teacher[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
+  const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>(undefined)
 
-  // State для перетаскиваемого предмета
-  const [activeSubject, setActiveSubject] = useState<Subject | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
 
-  // State для модального окна редактирования предмета
-  const [editingSubject, setEditingSubject] = useState<Subject | null>(null);
-  const [isFormOpen, setIsFormOpen] = useState(false);
-
-  // Загрузка сохраненного расписания при запуске приложения
+  // Загрузка данных при монтировании
   useEffect(() => {
-    const savedSchedule = localStorage.getItem('timetable')
-    const savedSubjects = localStorage.getItem('subjects')
-    
-    if (savedSchedule) {
-      try {
-        const parsedSchedule = JSON.parse(savedSchedule)
-        setSchedule(parsedSchedule)
-      } catch (error) {
-        console.error('Ошибка при загрузке расписания:', error)
-      }
-    }
-    
-    if (savedSubjects) {
-      try {
-        const parsedSubjects = JSON.parse(savedSubjects)
-        setSubjects(parsedSubjects)
-      } catch (error) {
-        console.error('Ошибка при загрузке предметов:', error)
-      }
-    }
-  }, [])
-
-  // Сохранение данных в localStorage при изменении
+    fetchData();
+  }, []);
+  
+  // Загрузка расписания при изменении выбранной группы
   useEffect(() => {
-    localStorage.setItem('subjects', JSON.stringify(subjects));
-    localStorage.setItem('schedule', JSON.stringify(schedule));
-  }, [subjects, schedule]);
+    if (selectedGroupId) {
+      fetchScheduleForGroup(selectedGroupId);
+    }
+  }, [selectedGroupId]);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      console.log('Начинаем загрузку данных...');
+
+      // Загружаем предметы, расписание, группы и преподавателей параллельно
+      const [subjectsResponse, scheduleResponse, teachersResponse, groupsResponse] = await Promise.all([
+        fetch('/api/subjects'),
+        fetch('/api/schedule'),
+        fetch('/api/teachers'),
+        fetch('/api/groups')
+      ]);
+
+      if (!subjectsResponse.ok) {
+        throw new Error('Ошибка при загрузке предметов');
+      }
+      if (!scheduleResponse.ok) {
+        throw new Error('Ошибка при загрузке расписания');
+      }
+      if (!teachersResponse.ok) {
+        throw new Error('Ошибка при загрузке преподавателей');
+      }
+      if (!groupsResponse.ok) {
+        throw new Error('Ошибка при загрузке групп');
+      }
+
+      const [subjectsData, scheduleData, teachersData, groupsData] = await Promise.all([
+        subjectsResponse.json(),
+        scheduleResponse.json(),
+        teachersResponse.json(),
+        groupsResponse.json()
+      ]);
+
+      console.log('Загруженные предметы:', JSON.stringify(subjectsData, null, 2));
+      console.log('Загруженное расписание:', JSON.stringify(scheduleData, null, 2));
+      console.log('Загруженные преподаватели:', JSON.stringify(teachersData, null, 2));
+      console.log('Загруженные группы:', JSON.stringify(groupsData, null, 2));
+
+      setSubjects(subjectsData);
+      setTeachers(teachersData);
+      setGroups(groupsData);
+      
+      // Если есть группы, выбираем первую по умолчанию
+      if (groupsData.length > 0) {
+        setSelectedGroupId(groupsData[0]._id);
+      }
+
+      // Проверяем, что scheduleData - это массив и он не пустой
+      if (Array.isArray(scheduleData) && scheduleData.length > 0) {
+        // Преобразуем данные расписания в нужный формат
+        const formattedSchedule = scheduleData.map(item => ({
+          subjectId: item.subjectId, // Оставляем весь объект subjectId
+          day: item.day,
+          period: item.period,
+          _id: item._id
+        }));
+        
+        console.log('Форматированное расписание:', JSON.stringify(formattedSchedule, null, 2));
+        setSchedule(formattedSchedule);
+      } else {
+        console.log('Расписание пустое или имеет неверный формат');
+        setSchedule([]);
+      }
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Произошла ошибка при загрузке данных';
+      setError(errorMessage);
+      console.error('Ошибка при загрузке данных:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Функция для загрузки расписания для конкретной группы
+  const fetchScheduleForGroup = async (groupId: string) => {
+    try {
+      setLoading(true);
+      
+      const scheduleResponse = await fetch(`/api/schedule?groupId=${groupId}`);
+      
+      if (!scheduleResponse.ok) {
+        throw new Error('Ошибка при загрузке расписания');
+      }
+      
+      const scheduleData = await scheduleResponse.json();
+      
+      console.log('Загруженное расписание для группы:', JSON.stringify(scheduleData, null, 2));
+      
+      // Проверяем, что scheduleData - это массив и он не пустой
+      if (Array.isArray(scheduleData) && scheduleData.length > 0) {
+        // Преобразуем данные расписания в нужный формат
+        const formattedSchedule = scheduleData
+          .filter(item => item && item.subjectId) // Фильтруем элементы без subjectId
+          .map(item => ({
+            subjectId: item.subjectId,
+            day: item.day,
+            period: item.period,
+            _id: item._id
+          }));
+        
+        console.log('Форматированное расписание:', JSON.stringify(formattedSchedule, null, 2));
+        setSchedule(formattedSchedule);
+      } else {
+        console.log('Расписание пустое или имеет неверный формат');
+        setSchedule([]);
+      }
+    } catch (error) {
+      console.error('Ошибка при загрузке расписания для группы:', error);
+      setSchedule([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Функция для начала перетаскивания
   const handleDragStart = (event: DragStartEvent) => {
-    const { active } = event;
-    const subjectId = active.id as string;
-    const subject = subjects.find(s => s.id === subjectId);
-    
+    const { active } = event
+    const subject = subjects.find(s => s._id === active.id)
     if (subject) {
-      setActiveSubject(subject);
+      setActiveSubject(subject)
+    }
+  }
+
+  // Функция для сохранения расписания
+  const handleSaveSchedule = async () => {
+    try {
+      if (!selectedGroupId) {
+        alert('Выберите группу для сохранения расписания');
+        return;
+      }
+
+      const response = await fetch('/api/schedule', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          items: schedule,
+          groupId: selectedGroupId 
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Ошибка при сохранении расписания')
+      }
+      alert('Розклад успішно збережено!')
+    } catch (error) {
+      console.error('Ошибка при сохранении:', error)
+      alert('Помилка при збереженні розкладу')
+    }
+  }
+
+  // Функция автоматического генерирования расписания
+  const handleGenerateSchedule = async () => {
+    try {
+      if (!selectedGroupId) {
+        alert('Выберите группу для генерации расписания');
+        return;
+      }
+
+      setLoading(true);
+      
+      // Отправляем запрос на генерацию расписания
+      const response = await fetch('/api/schedule', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ groupId: selectedGroupId })
+      });
+
+      if (!response.ok) {
+        throw new Error('Ошибка при генерации расписания');
+      }
+
+      const newScheduleData = await response.json();
+      console.log('Сгенерированное расписание:', JSON.stringify(newScheduleData, null, 2));
+      
+      // Преобразуем данные расписания в нужный формат
+      const formattedSchedule = newScheduleData.map((item: any) => ({
+        subjectId: item.subjectId,
+        day: item.day,
+        period: item.period,
+        _id: item._id
+      }));
+      
+      setSchedule(formattedSchedule);
+      alert('Розклад успішно згенеровано!');
+    } catch (error) {
+      console.error('Ошибка при генерации:', error);
+      alert('Помилка при генерації розкладу');
+    } finally {
+      setLoading(false);
     }
   };
 
   // Обработчик события окончания перетаскивания
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
     
     if (!over) {
       setActiveSubject(null);
       return;
     }
     
-    const subjectId = active.id as string
-    const [day, period] = (over.id as string).split('-').map(Number)
+    if (!selectedGroupId) {
+      alert('Выберите группу для редактирования расписания');
+      setActiveSubject(null);
+      return;
+    }
     
-    // Проверяем, есть ли уже предмет в этой ячейке
-    const existingItemIndex = schedule.findIndex(
-      item => item.day === day && item.period === period
-    )
+    const subjectId = active.id as string;
+    const cellId = over.id as string;
     
-    if (existingItemIndex >= 0) {
-      // Заменяем существующий предмет
-      const newSchedule = [...schedule]
-      newSchedule[existingItemIndex] = {
-        id: `${day}-${period}-${subjectId}`,
-        subjectId,
-        day,
-        period
+    // Проверяем формат идентификатора ячейки (должен быть "день-пара")
+    if (!cellId.includes('-')) {
+      console.error('Invalid cell ID format:', cellId);
+      setActiveSubject(null);
+      return;
+    }
+
+    const [dayStr, periodStr] = cellId.split('-');
+    const day = parseInt(dayStr, 10);
+    const period = parseInt(periodStr, 10);
+    
+    // Проверяем валидность day и period
+    if (isNaN(day) || isNaN(period) || 
+        day < 0 || day > 4 || period < 1 || period > 5) {
+      console.error('Invalid day or period values:', { day, period });
+      setActiveSubject(null);
+      return;
+    }
+
+    // Проверяем, не превышено ли количество часов для предмета
+    const subject = subjects.find(s => s._id === subjectId);
+    if (!subject) {
+      console.error('Subject not found:', subjectId);
+      setActiveSubject(null);
+      return;
+    }
+
+    // Проверяем, соответствует ли предмет выбранной группе
+    const subjectGroupId = typeof subject.groupId === 'string' ? subject.groupId : subject.groupId._id;
+    if (subjectGroupId !== selectedGroupId) {
+      alert(`Предмет "${subject.name}" не принадлежит выбранной группе`);
+      setActiveSubject(null);
+      return;
+    }
+
+    // Проверяем, не запрещен ли этот день для данного предмета
+    if (subject.restrictedDays && subject.restrictedDays.includes(day)) {
+      alert(`Предмет "${subject.name}" не может проводиться в этот день недели`);
+      setActiveSubject(null);
+      return;
+    }
+
+    // Считаем текущее количество использованных часов
+    const usedHours = schedule.filter(item => 
+      (typeof item.subjectId === 'string' ? 
+        item.subjectId === subjectId : 
+        item.subjectId._id === subjectId)
+    ).length;
+
+    // Если ячейка уже занята этим предметом, разрешаем перетаскивание
+    const cellOccupiedByThisSubject = schedule.some(
+      item => item.day === day && item.period === period && 
+      (typeof item.subjectId === 'string' ? 
+        item.subjectId === subjectId : 
+        item.subjectId._id === subjectId)
+    );
+
+    // Если ячейка не занята этим предметом и все часы использованы, запрещаем перетаскивание
+    if (!cellOccupiedByThisSubject && usedHours >= subject.hoursPerWeek) {
+      alert(`Для предмета "${subject.name}" уже использованы все ${subject.hoursPerWeek} часа в неделю`);
+      setActiveSubject(null);
+      return;
+    }
+
+    console.log('Добавляем предмет в расписание:', {
+      subjectId,
+      day,
+      period
+    });
+
+    const newSchedule = schedule.filter(
+      item => !(item.day === day && item.period === period)
+    );
+    
+    newSchedule.push({
+      subjectId,
+      day,
+      period
+    });
+    
+    try {
+      console.log('Сохраняем обновленное расписание:', newSchedule);
+
+      const response = await fetch('/api/schedule', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          items: newSchedule,
+          groupId: selectedGroupId 
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Ошибка при сохранении расписания');
       }
-      setSchedule(newSchedule)
-    } else {
-      // Добавляем новый предмет в расписание
-      setSchedule([
-        ...schedule,
-        {
-          id: `${day}-${period}-${subjectId}`,
-          subjectId,
-          day,
-          period
-        }
-      ])
+
+      const savedSchedule = await response.json();
+      console.log('Расписание успешно сохранено:', savedSchedule);
+
+      setSchedule(newSchedule);
+    } catch (error) {
+      console.error('Ошибка при сохранении:', error);
     }
     
     setActiveSubject(null);
-  }
+  };
 
   // Функция удаления предмета из расписания
-  const handleRemoveScheduleItem = (day: number, period: number) => {
-    setSchedule(schedule.filter(item => !(item.day === day && item.period === period)))
-  }
+  const handleRemoveScheduleItem = async (day: number, period: number) => {
+    try {
+      if (!selectedGroupId) {
+        alert('Выберите группу для редактирования расписания');
+        return;
+      }
+      
+      console.log('Удаляем предмет из ячейки:', { day, period });
+      
+      const newSchedule = schedule.filter(
+        item => !(item.day === day && item.period === period)
+      );
 
-  // Функция сохранения расписания
-  const handleSaveSchedule = () => {
-    const scheduleData = JSON.stringify(schedule)
-    localStorage.setItem('timetable', scheduleData)
-    localStorage.setItem('subjects', JSON.stringify(subjects));
-    alert('Розклад успішно збережено!')
-  }
+      // Сначала обновляем состояние
+      setSchedule(newSchedule);
 
-  // Функция очистки расписания
-  const handleClearSchedule = () => {
-    if (confirm('Ви впевнені, що хочете очистити розклад?')) {
-      setSchedule([]);
-      localStorage.removeItem('timetable');
+      // Затем сохраняем в БД
+      const response = await fetch('/api/schedule', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          items: newSchedule,
+          groupId: selectedGroupId 
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Ошибка при сохранении расписания');
+      }
+
+      console.log('Предмет успешно удален и расписание сохранено');
+    } catch (error) {
+      console.error('Ошибка при удалении предмета:', error);
+      // Восстанавливаем предыдущее состояние в случае ошибки
+      await fetchData();
     }
   };
 
-  // Функция экспорта расписания в файл
+  const handleClearSchedule = async () => {
+    if (confirm('Ви впевнені, що хочете очистити розклад?')) {
+      try {
+        if (!selectedGroupId) {
+          alert('Выберите группу для очистки расписания');
+          return;
+        }
+        
+        const response = await fetch('/api/schedule', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            items: [],
+            groupId: selectedGroupId 
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Ошибка при очистке расписания');
+        }
+
+        setSchedule([]);
+        alert('Розклад успішно очищено!');
+      } catch (error) {
+        console.error('Ошибка при очистке:', error);
+        alert('Помилка при очищенні розкладу');
+      }
+    }
+  };
+
   const handleExportSchedule = () => {
-    const data = {
-      subjects,
-      schedule
-    };
-    
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const scheduleData = JSON.stringify(schedule, null, 2);
+    const blob = new Blob([scheduleData], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'timetable.json';
+    a.download = 'schedule.json';
     document.body.appendChild(a);
     a.click();
-    
-    // Очищаем созданные объекты
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-  // Функция импорта расписания из файла
-  const handleImportSchedule = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleImportSchedule = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
-    
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const content = e.target?.result as string;
-        const data = JSON.parse(content);
-        
-        if (data.subjects && data.schedule) {
-          setSubjects(data.subjects);
-          setSchedule(data.schedule);
-          localStorage.setItem('timetable', JSON.stringify(data.schedule));
-          localStorage.setItem('subjects', JSON.stringify(data.subjects));
-          alert('Розклад успішно імпортовано!');
-        } else {
-          throw new Error('Неправильний формат даних');
-        }
-      } catch (error) {
-        console.error('Помилка імпорту розкладу:', error);
-        alert('Помилка при імпорті розкладу. Перевірте формат файлу.');
-      }
-    };
-    
-    reader.readAsText(file);
-  };
 
-  // Функция автоматического генерирования расписания
-  const handleGenerateSchedule = () => {
-    if (schedule.length > 0 && !confirm('Поточний розклад буде замінено. Продовжити?')) {
-      return;
-    }
-    
-    // Очищаем текущее расписание
-    const newSchedule: ScheduleItem[] = [];
-    
-    // Распределяем предметы по расписанию согласно требованиям weeklyHours
-    const daysInWeek = 5;  // Количество дней в неделе (Пн-Пт)
-    const periodsPerDay = 5;  // Количество пар в день (ограничено до 5)
-    
-    // Расписание учителей (для предотвращения накладок)
-    const teacherSchedule: Record<string, Array<{ day: number, period: number }>> = {};
-    
-    // Инициализируем расписание учителей
-    subjects.forEach(subject => {
-      teacherSchedule[subject.teacher] = [];
-    });
-    
-    // Распределяем каждый предмет
-    subjects.forEach(subject => {
-      let assignedHours = 0;
-      
-      // Распределяем предмет до тех пор, пока не достигнем требуемого количества часов
-      while (assignedHours < subject.weeklyHours) {
-        // Выбираем случайный день и пару (от 1 до 5)
-        const day = Math.floor(Math.random() * daysInWeek);
-        const period = Math.floor(Math.random() * periodsPerDay) + 1;
-        
-        // Проверяем, свободен ли этот слот
-        const isSlotTaken = newSchedule.some(item => 
-          item.day === day && item.period === period
-        );
-        
-        // Проверяем, свободен ли учитель в это время
-        const isTeacherBusy = teacherSchedule[subject.teacher].some(slot => 
-          slot.day === day && slot.period === period
-        );
-        
-        // Если слот свободен и учитель не занят, назначаем предмет
-        if (!isSlotTaken && !isTeacherBusy) {
-          const newItem = {
-            id: `${day}-${period}-${subject.id}`,
-            subjectId: subject.id,
-            day,
-            period
-          };
-          
-          newSchedule.push(newItem);
-          
-          // Обновляем расписание учителя
-          teacherSchedule[subject.teacher].push({ day, period });
-          
-          assignedHours++;
-        }
-        
-        // Предотвращаем бесконечный цикл, если нет доступных слотов
-        // Максимальное количество ячеек в расписании: 5 дней * 5 пар = 25
-        if (newSchedule.length >= daysInWeek * periodsPerDay) {
-          break;
-        }
+    try {
+      const text = await file.text();
+      const importedSchedule = JSON.parse(text);
+
+      const response = await fetch('/api/schedule', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ items: importedSchedule }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Ошибка при импорте расписания');
       }
-    });
-    
-    setSchedule(newSchedule);
-    localStorage.setItem('timetable', JSON.stringify(newSchedule));
-    alert('Розклад успішно згенеровано!');
+
+      setSchedule(importedSchedule);
+      alert('Розклад успішно імпортовано!');
+    } catch (error) {
+      console.error('Ошибка при импорте:', error);
+      alert('Помилка при імпорті розкладу');
+    }
   };
 
   // Функция для добавления нового предмета
   const handleAddSubject = () => {
+    console.log('handleAddSubject вызван');
     setEditingSubject(null);
     setIsFormOpen(true);
   };
 
   // Функция для редактирования предмета
   const handleEditSubject = (subject: Subject) => {
+    console.log('handleEditSubject вызван с предметом:', subject);
     setEditingSubject(subject);
     setIsFormOpen(true);
   };
 
-  // Функция для удаления предмета
-  const handleDeleteSubject = (id: string) => {
-    if (confirm('Ви впевнені, що хочете видалити цей предмет?')) {
-      setSubjects(subjects.filter(s => s.id !== id));
-      // Также удаляем этот предмет из расписания
-      setSchedule(schedule.filter(item => item.subjectId !== id));
+  // Функция для сохранения предмета (добавление или редактирование)
+  const handleSaveSubject = async (subject: Subject) => {
+    console.log('handleSaveSubject вызван с предметом:', subject);
+    try {
+      let response;
+      
+      if (subject._id) {
+        console.log('Редактирование существующего предмета с ID:', subject._id);
+        // Редактирование существующего предмета
+        response = await fetch(`/api/subjects/${subject._id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(subject),
+        });
+      } else {
+        console.log('Добавление нового предмета');
+        // Добавление нового предмета
+        response = await fetch('/api/subjects', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(subject),
+        });
+      }
+
+      if (!response.ok) {
+        throw new Error('Ошибка при сохранении предмета');
+      }
+
+      const savedSubject = await response.json();
+      console.log('Предмет успешно сохранен:', savedSubject);
+      
+      // Обновляем список предметов
+      if (subject._id) {
+        setSubjects(subjects.map(s => s._id === subject._id ? savedSubject : s));
+      } else {
+        setSubjects([...subjects, savedSubject]);
+      }
+      
+      setIsFormOpen(false);
+      
+    } catch (error) {
+      console.error('Ошибка при сохранении предмета:', error);
+      alert('Помилка при збереженні предмета');
     }
   };
 
-  // Функция для сохранения предмета после редактирования/добавления
-  const handleSaveSubject = (subject: Subject) => {
-    if (editingSubject) {
-      // Обновляем существующий предмет
-      setSubjects(prevSubjects => 
-        prevSubjects.map(s => 
-          s.id === subject.id ? subject : s
-        )
-      );
-    } else {
-      // Добавляем новый предмет с уникальным ID
-      const newSubject = {
-        ...subject,
-        id: `subject-${Date.now()}`
-      };
-      setSubjects(prevSubjects => [...prevSubjects, newSubject]);
+  // Функция для удаления предмета
+  const handleDeleteSubject = async (id: string) => {
+    console.log('handleDeleteSubject вызван с ID:', id);
+    if (confirm('Ви впевнені, що хочете видалити цей предмет?')) {
+      try {
+        // Проверяем, используется ли предмет в расписании
+        const subjectInSchedule = schedule.some(item => 
+          (typeof item.subjectId === 'string' ? 
+            item.subjectId === id : 
+            item.subjectId._id === id)
+        );
+        
+        if (subjectInSchedule) {
+          if (!confirm('Цей предмет використовується в розкладі. Видалення предмета також видалить його з розкладу. Продовжити?')) {
+            return;
+          }
+          
+          // Удаляем предмет из расписания
+          const newSchedule = schedule.filter(item => 
+            !(typeof item.subjectId === 'string' ? 
+              item.subjectId === id : 
+              item.subjectId._id === id)
+          );
+          
+          // Сохраняем обновленное расписание
+          await fetch('/api/schedule', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ items: newSchedule }),
+          });
+          
+          setSchedule(newSchedule);
+        }
+        
+        // Удаляем предмет
+        const response = await fetch(`/api/subjects/${id}`, {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          throw new Error('Ошибка при удалении предмета');
+        }
+
+        // Обновляем список предметов
+        setSubjects(subjects.filter(s => s._id !== id));
+        
+      } catch (error) {
+        console.error('Ошибка при удалении предмета:', error);
+        alert('Помилка при видаленні предмета');
+      }
     }
-    
-    setIsFormOpen(false);
-    setEditingSubject(null);
   };
+
+  if (loading) {
+    return <div className="flex justify-center items-center min-h-screen">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+    </div>
+  }
+
+  if (error) {
+    return <div className="flex justify-center items-center min-h-screen text-red-500">
+      {error}
+    </div>
+  }
 
   return (
     <div className="min-h-screen flex flex-col dark:bg-dark-900">
       <Header 
-        onSave={handleSaveSchedule} 
-        onClear={handleClearSchedule} 
+        onSave={handleSaveSchedule}
+        onClear={handleClearSchedule}
         onExport={handleExportSchedule}
         onImport={handleImportSchedule}
         onGenerate={handleGenerateSchedule}
+        currentSchedule={schedule}
+        onLoadSchedule={(items) => {
+          // Обновляем состояние расписания
+          setSchedule(items);
+          
+          // Сохраняем в БД
+          fetch('/api/schedule', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ items, groupId: selectedGroupId }),
+          }).catch(error => {
+            console.error('Ошибка при сохранении расписания:', error);
+          });
+        }}
+        groups={groups}
+        selectedGroupId={selectedGroupId}
+        onGroupSelect={(groupId) => setSelectedGroupId(groupId)}
       />
       <main className="flex-grow p-4 md:p-6 container mx-auto max-w-7xl">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Основной контент (расписание) - 8 колонок */}
-          <div className="lg:col-span-8 space-y-6">
-            <Timetable 
-              schedule={schedule} 
-              subjects={subjects} 
-              onRemoveItem={handleRemoveScheduleItem} 
-            />
-          </div>
-          
-          {/* Боковая панель (список предметов) - 4 колонки */}
-          <div className="lg:col-span-4 space-y-6">
-            <DndContext
-              onDragStart={handleDragStart}
-              onDragEnd={handleDragEnd}
-              collisionDetection={closestCenter}
-            >
-              <SubjectList 
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            {/* Основной контент (расписание) - 8 колонок */}
+            <div className="lg:col-span-8 space-y-6">
+              <Timetable 
+                schedule={schedule} 
                 subjects={subjects} 
+                onRemoveItem={handleRemoveScheduleItem}
+              />
+            </div>
+            
+            {/* Боковая панель (список предметов) - 4 колонки */}
+            <div className="lg:col-span-4 space-y-6">
+              <SubjectList
+                subjects={subjects.filter(s => 
+                  !selectedGroupId || 
+                  (typeof s.groupId === 'string' ? s.groupId === selectedGroupId : s.groupId._id === selectedGroupId)
+                )}
                 onEdit={handleEditSubject}
                 onDelete={handleDeleteSubject}
                 onAdd={handleAddSubject}
               />
-              
-              <DragOverlay>
-                {activeSubject ? (
-                  <div className="p-3 rounded-lg bg-white dark:bg-dark-800 shadow-lg border border-gray-200 dark:border-dark-600 w-48">
-                    <div className="font-medium">{activeSubject.name}</div>
-                    <div className="text-xs text-gray-600 dark:text-gray-300">{activeSubject.teacher}</div>
-                  </div>
-                ) : null}
-              </DragOverlay>
-            </DndContext>
-          </div>
+            </div>
+            
+            <DragOverlay>
+              {activeSubject ? (
+                <div className="p-3 rounded-lg bg-white dark:bg-dark-800 shadow-lg border border-gray-200 dark:border-dark-600 w-48">
+                  <div className="font-medium">{activeSubject.name}</div>
+                  <div className="text-sm text-gray-500">{activeSubject.shortName}</div>
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
         </div>
       </main>
       
@@ -377,6 +736,8 @@ function App() {
                 subject={editingSubject}
                 onSave={handleSaveSubject}
                 onCancel={() => setIsFormOpen(false)}
+                teachers={teachers}
+                groups={groups}
               />
             </div>
           </div>

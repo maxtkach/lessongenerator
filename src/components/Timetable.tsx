@@ -1,5 +1,5 @@
 import React from 'react';
-import { useDroppable } from '@dnd-kit/core';
+import { useDroppable, useDndContext } from '@dnd-kit/core';
 import type { Subject, ScheduleItem } from '../App';
 
 interface TimetableProps {
@@ -29,7 +29,7 @@ const PERIODS = [
 const Timetable: React.FC<TimetableProps> = ({ schedule, subjects, onRemoveItem }) => {
   // Функция для получения предмета по его id
   const getSubjectById = (id: string): Subject | undefined => {
-    return subjects.find(subject => subject.id === id);
+    return subjects.find(subject => subject._id === id);
   };
 
   // Функция для получения предмета из расписания по дню и паре
@@ -39,10 +39,13 @@ const Timetable: React.FC<TimetableProps> = ({ schedule, subjects, onRemoveItem 
 
   // Счетчик для отслеживания количества часов по предметам
   const subjectHoursCount = schedule.reduce((acc: Record<string, number>, item) => {
-    if (!acc[item.subjectId]) {
-      acc[item.subjectId] = 0;
+    const subjectId = typeof item.subjectId === 'string' ? 
+      item.subjectId : 
+      item.subjectId._id;
+    if (!acc[subjectId]) {
+      acc[subjectId] = 0;
     }
-    acc[item.subjectId]++;
+    acc[subjectId]++;
     return acc;
   }, {});
 
@@ -54,7 +57,7 @@ const Timetable: React.FC<TimetableProps> = ({ schedule, subjects, onRemoveItem 
   } => {
     const subject = getSubjectById(subjectId);
     const hours = subjectHoursCount[subjectId] || 0;
-    const required = subject?.weeklyHours || 0;
+    const required = subject?.hoursPerWeek || 0;
     return {
       hours,
       required,
@@ -104,7 +107,11 @@ const Timetable: React.FC<TimetableProps> = ({ schedule, subjects, onRemoveItem 
                 </td>
                 {DAYS.map((day, dayIndex) => {
                   const scheduleItem = getScheduleItem(dayIndex, period.id);
-                  const subject = scheduleItem ? getSubjectById(scheduleItem.subjectId) : undefined;
+                  const subject = scheduleItem ? 
+                    (typeof scheduleItem.subjectId === 'string' ? 
+                      getSubjectById(scheduleItem.subjectId) : 
+                      scheduleItem.subjectId) : 
+                    undefined;
                   
                   return (
                     <DroppableCell 
@@ -112,8 +119,13 @@ const Timetable: React.FC<TimetableProps> = ({ schedule, subjects, onRemoveItem 
                       id={`${dayIndex}-${period.id}`} 
                       subject={subject} 
                       onRemove={() => onRemoveItem(dayIndex, period.id)} 
-                      categoryColor={subject ? categoryColors[subject.category] || '' : ''}
-                      hoursStatus={subject ? getSubjectHoursStatus(subject.id) : undefined}
+                      categoryColor=""
+                      hoursStatus={subject && scheduleItem ? getSubjectHoursStatus(
+                        typeof scheduleItem.subjectId === 'string' ? 
+                          scheduleItem.subjectId : 
+                          scheduleItem.subjectId._id
+                      ) : undefined}
+                      allSubjects={subjects}
                     />
                   );
                 })}
@@ -137,6 +149,7 @@ interface DroppableCellProps {
     required: number;
     isComplete: boolean;
   };
+  allSubjects: Subject[];
 }
 
 const DroppableCell: React.FC<DroppableCellProps> = ({ 
@@ -144,24 +157,74 @@ const DroppableCell: React.FC<DroppableCellProps> = ({
   subject, 
   onRemove, 
   categoryColor,
-  hoursStatus
+  hoursStatus,
+  allSubjects
 }) => {
   const { isOver, setNodeRef } = useDroppable({
     id,
   });
   
+  // Получаем день из id ячейки (формат: "день-пара")
+  const day = parseInt(id.split('-')[0], 10);
+  
+  // Получаем активный предмет из контекста перетаскивания
+  const { active, over } = useDndContext();
+  const activeSubject = active ? allSubjects.find((s: Subject) => s._id === active.id) : null;
+  
+  // Проверяем, запрещен ли этот день для активного предмета
+  const isDayRestricted = activeSubject && 
+    activeSubject.restrictedDays && 
+    activeSubject.restrictedDays.includes(day);
+  
+  // Получаем информацию о преподавателе
+  const getTeacherInfo = () => {
+    if (!subject) return null;
+    
+    // Проверяем случай, когда subjectId - это объект с вложенным teacherId
+    if (typeof subject === 'object' && subject.teacherId) {
+      if (typeof subject.teacherId === 'object') {
+        return subject.teacherId.shortName;
+      } else if (typeof subject.teacherId === 'string') {
+        // Если teacherId - это строка, ищем преподавателя в списке всех предметов
+        const foundSubject = allSubjects.find(s => 
+          typeof s.teacherId === 'object' && 
+          s.teacherId && 
+          s.teacherId._id === subject.teacherId
+        );
+        
+        if (foundSubject && typeof foundSubject.teacherId === 'object') {
+          return foundSubject.teacherId.shortName;
+        }
+      }
+    }
+    
+    return null;
+  };
+  
+  const teacherInfo = getTeacherInfo();
+  
   return (
     <td 
       ref={setNodeRef}
       className={`py-1 px-2 border-r border-b border-dark-700 h-16 transition-colors duration-200 ${
+        isDayRestricted ? 'bg-red-900/20' : 
         isOver ? 'bg-dark-700' : ''
       }`}
     >
       {subject ? (
-        <div className={`flex flex-col h-full relative p-1 rounded-lg ${categoryColor} border shadow-sm`}>
+        <div className={`flex flex-col h-full relative p-1 rounded-lg border shadow-sm bg-blue-900 border-blue-800`}>
           <div className="flex-grow">
             <div className="font-medium text-white text-sm">{subject.name}</div>
-            <div className="text-xs text-dark-300">{subject.teacher}</div>
+            <div className="text-xs text-blue-300">{subject.shortName}</div>
+            
+            {teacherInfo && (
+              <div className="text-xs text-blue-300 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                {teacherInfo}
+              </div>
+            )}
             
             {hoursStatus && (
               <div className="mt-1 flex items-center">

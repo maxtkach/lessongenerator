@@ -9,6 +9,9 @@ interface SubjectListProps {
   onAdd: () => void;
 }
 
+// Названия дней недели
+const DAYS_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт'];
+
 // Компонент для отдельного предмета, который можно перетаскивать
 const DraggableSubject: React.FC<{ 
   subject: Subject,
@@ -16,7 +19,7 @@ const DraggableSubject: React.FC<{
   onDelete: () => void
 }> = ({ subject, onEdit, onDelete }) => {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
-    id: subject.id,
+    id: subject._id,
   });
   
   const style = transform ? {
@@ -24,84 +27,79 @@ const DraggableSubject: React.FC<{
   } : undefined;
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...listeners}
-      {...attributes}
-      className="p-2 mb-2 bg-dark-800 rounded-lg shadow-sm hover:shadow-md cursor-move hover:bg-dark-700 transition-all duration-200 border border-dark-700 relative group"
-    >
-      <div className="flex justify-between items-start">
-        <div>
-          <div className="font-medium text-white text-sm">{subject.name}</div>
-          <div className="text-xs text-dark-300">{subject.category}</div>
+    <div className="mb-2 flex items-start">
+      {/* Перетаскиваемая часть */}
+      <div
+        ref={setNodeRef}
+        style={style}
+        {...listeners}
+        {...attributes}
+        className="flex-grow p-2 bg-dark-800 rounded-lg shadow-sm hover:shadow-md cursor-move hover:bg-dark-700 transition-all duration-200 border border-dark-700 mr-2"
+      >
+        <div className="font-medium text-white text-sm">{subject.name}</div>
+        <div className="text-xs text-dark-300">{subject.shortName}</div>
+        
+        {subject.teacher && (
           <div className="text-xs text-dark-400 mt-1 flex items-center">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
             {subject.teacher}
           </div>
-          <div className="text-xs text-dark-400 flex items-center">
+        )}
+        
+        <div className="text-xs text-dark-400 mt-1 flex items-center">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          {subject.hoursPerWeek} год/тиждень
+        </div>
+        
+        {subject.restrictedDays && subject.restrictedDays.length > 0 && (
+          <div className="text-xs text-red-400 mt-1 flex items-center">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            {subject.weeklyHours} год/тиждень
+            Не в: {subject.restrictedDays.map(day => DAYS_SHORT[day]).join(', ')}
           </div>
-        </div>
-        <div className="flex-shrink-0 space-y-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={onEdit}
-            className="p-1 bg-dark-700 text-secondary-400 rounded hover:bg-dark-600"
-            title="Редагувати"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-          </button>
-          <button
-            onClick={onDelete}
-            className="p-1 bg-dark-700 text-red-400 rounded hover:bg-dark-600"
-            title="Видалити"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
-        </div>
+        )}
+      </div>
+      
+      {/* Кнопки управления (вне перетаскиваемой области) */}
+      <div className="flex flex-col space-y-1">
+        <button
+          onClick={() => {
+            console.log('Кнопка редактирования нажата для предмета:', subject);
+            onEdit();
+          }}
+          className="p-1 bg-dark-700 text-secondary-400 rounded hover:bg-dark-600"
+          title="Редагувати"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          </svg>
+        </button>
+        <button
+          onClick={() => {
+            console.log('Кнопка удаления нажата для предмета с ID:', subject._id);
+            onDelete();
+          }}
+          className="p-1 bg-dark-700 text-red-400 rounded hover:bg-dark-600"
+          title="Видалити"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+        </button>
       </div>
     </div>
   );
 };
 
-interface GroupedSubjects {
-  [key: string]: Subject[];
-}
-
-// Цвета для категорий
-const categoryColors: Record<string, string> = {
-  'Точні науки': 'bg-blue-900 text-blue-300 border-blue-800',
-  'Природничі науки': 'bg-green-900 text-green-300 border-green-800',
-  'Гуманітарні науки': 'bg-yellow-900 text-yellow-300 border-yellow-800',
-  'Мови': 'bg-purple-900 text-purple-300 border-purple-800',
-  'Мистецтво': 'bg-pink-900 text-pink-300 border-pink-800',
-  'Інше': 'bg-gray-900 text-gray-300 border-gray-800',
-};
-
 const SubjectList: React.FC<SubjectListProps> = ({ subjects, onEdit, onDelete, onAdd }) => {
-  // Группируем предметы по категориям
-  const groupedSubjects = useMemo(() => {
-    return subjects.reduce((acc: GroupedSubjects, subject) => {
-      if (!acc[subject.category]) {
-        acc[subject.category] = [];
-      }
-      acc[subject.category].push(subject);
-      return acc;
-    }, {});
-  }, [subjects]);
-
   // Вычисляем общее количество часов в неделю
   const totalHours = useMemo(() => {
-    return subjects.reduce((total, subject) => total + subject.weeklyHours, 0);
+    return subjects.reduce((total, subject) => total + subject.hoursPerWeek, 0);
   }, [subjects]);
 
   return (
@@ -127,24 +125,16 @@ const SubjectList: React.FC<SubjectListProps> = ({ subjects, onEdit, onDelete, o
       </div>
       
       <div className="max-h-[70vh] overflow-y-auto pr-1">
-        {/* Отображаем группы предметов */}
-        {Object.entries(groupedSubjects).map(([category, categorySubjects]) => (
-          <div key={category} className="mb-3">
-            <h3 className={`text-xs font-semibold mb-2 ${categoryColors[category] || 'bg-gray-900 text-gray-300'} px-2 py-1 rounded-md inline-block border`}>
-              {category}
-            </h3>
-            <div className="space-y-1">
-              {categorySubjects.map((subject) => (
-                <DraggableSubject 
-                  key={subject.id} 
-                  subject={subject} 
-                  onEdit={() => onEdit(subject)} 
-                  onDelete={() => onDelete(subject.id)}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
+        <div className="space-y-1">
+          {subjects.map((subject) => (
+            <DraggableSubject 
+              key={subject._id} 
+              subject={subject} 
+              onEdit={() => onEdit(subject)} 
+              onDelete={() => onDelete(subject._id)}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -1,22 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import type { Subject, Teacher, Group } from '../App';
+import type { Teacher } from '../App';
 
-interface SubjectFormProps {
-  subject: Subject | null;
-  teachers: Teacher[];
-  groups: Group[];
-  onSave: (subject: Subject) => void;
+interface TeacherFormProps {
+  teacher: Teacher | null;
+  onSave: (teacher: Teacher) => void;
   onCancel: () => void;
 }
-
-const categories = [
-  'Точні науки',
-  'Природничі науки',
-  'Гуманітарні науки',
-  'Мови',
-  'Мистецтво',
-  'Інше'
-];
 
 const DAYS = [
   { id: 0, name: 'Понеділок' },
@@ -26,42 +15,40 @@ const DAYS = [
   { id: 4, name: 'П\'ятниця' }
 ];
 
-const SubjectForm: React.FC<SubjectFormProps> = ({ subject, teachers, groups, onSave, onCancel }) => {
-  const [formData, setFormData] = useState<Omit<Subject, '_id'> & { _id?: string }>({
-    name: '',
+const TeacherForm: React.FC<TeacherFormProps> = ({ teacher, onSave, onCancel }) => {
+  const [formData, setFormData] = useState<Omit<Teacher, '_id'> & { _id?: string }>({
+    fullName: '',
     shortName: '',
-    hoursPerWeek: 2,
-    teacherId: '',
-    groupId: '',
+    department: '',
+    position: '',
     restrictedDays: []
   });
 
   useEffect(() => {
-    if (subject) {
+    if (teacher) {
       setFormData({
-        ...subject,
-        teacherId: typeof subject.teacherId === 'object' ? subject.teacherId._id : subject.teacherId || '',
-        groupId: typeof subject.groupId === 'object' ? subject.groupId._id : subject.groupId || '',
-        restrictedDays: subject.restrictedDays || []
+        ...teacher,
+        department: teacher.department || '',
+        position: teacher.position || '',
+        restrictedDays: teacher.restrictedDays || []
       });
     } else {
-      // Сбрасываем форму при создании нового предмета
+      // Сбрасываем форму при создании нового преподавателя
       setFormData({
-        name: '',
+        fullName: '',
         shortName: '',
-        hoursPerWeek: 2,
-        teacherId: '',
-        groupId: groups.length > 0 ? groups[0]._id : '',
+        department: '',
+        position: '',
         restrictedDays: []
       });
     }
-  }, [subject, groups]);
+  }, [teacher]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData({
       ...formData,
-      [name]: name === 'hoursPerWeek' ? parseInt(value, 10) : value
+      [name]: value
     });
   };
 
@@ -83,17 +70,17 @@ const SubjectForm: React.FC<SubjectFormProps> = ({ subject, teachers, groups, on
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData as Subject);
+    onSave(formData as Teacher);
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       <div>
-        <label className="block text-dark-300 text-xs mb-1">Назва предмету</label>
+        <label className="block text-dark-300 text-xs mb-1">ПІБ викладача</label>
         <input
           type="text"
-          name="name"
-          value={formData.name}
+          name="fullName"
+          value={formData.fullName}
           onChange={handleChange}
           className="w-full px-2 py-1.5 bg-dark-700 border border-dark-600 rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-secondary-500"
           required
@@ -101,7 +88,7 @@ const SubjectForm: React.FC<SubjectFormProps> = ({ subject, teachers, groups, on
       </div>
       
       <div>
-        <label className="block text-dark-300 text-xs mb-1">Коротка назва</label>
+        <label className="block text-dark-300 text-xs mb-1">Коротке ім'я</label>
         <input
           type="text"
           name="shortName"
@@ -113,51 +100,24 @@ const SubjectForm: React.FC<SubjectFormProps> = ({ subject, teachers, groups, on
       </div>
       
       <div>
-        <label className="block text-dark-300 text-xs mb-1">Група</label>
-        <select
-          name="groupId"
-          value={formData.groupId}
-          onChange={handleChange}
-          className="w-full px-2 py-1.5 bg-dark-700 border border-dark-600 rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-secondary-500"
-          required
-        >
-          <option value="">Виберіть групу</option>
-          {groups.map(group => (
-            <option key={group._id} value={group._id}>
-              {group.name} ({group.shortName})
-            </option>
-          ))}
-        </select>
-      </div>
-      
-      <div>
-        <label className="block text-dark-300 text-xs mb-1">Викладач</label>
-        <select
-          name="teacherId"
-          value={formData.teacherId}
-          onChange={handleChange}
-          className="w-full px-2 py-1.5 bg-dark-700 border border-dark-600 rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-secondary-500"
-        >
-          <option value="">Виберіть викладача</option>
-          {teachers.map(teacher => (
-            <option key={teacher._id} value={teacher._id}>
-              {teacher.fullName} ({teacher.shortName})
-            </option>
-          ))}
-        </select>
-      </div>
-      
-      <div>
-        <label className="block text-dark-300 text-xs mb-1">Кількість годин на тиждень</label>
+        <label className="block text-dark-300 text-xs mb-1">Кафедра</label>
         <input
-          type="number"
-          name="hoursPerWeek"
-          value={formData.hoursPerWeek}
+          type="text"
+          name="department"
+          value={formData.department}
           onChange={handleChange}
-          min="1"
-          max="10"
           className="w-full px-2 py-1.5 bg-dark-700 border border-dark-600 rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-secondary-500"
-          required
+        />
+      </div>
+      
+      <div>
+        <label className="block text-dark-300 text-xs mb-1">Посада</label>
+        <input
+          type="text"
+          name="position"
+          value={formData.position}
+          onChange={handleChange}
+          className="w-full px-2 py-1.5 bg-dark-700 border border-dark-600 rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-secondary-500"
         />
       </div>
       
@@ -180,7 +140,7 @@ const SubjectForm: React.FC<SubjectFormProps> = ({ subject, teachers, groups, on
           ))}
         </div>
         <p className="text-xs text-dark-400 mt-1">
-          Виберіть дні, коли предмет НЕ може проводитися
+          Виберіть дні, коли викладач НЕ може проводити заняття
         </p>
       </div>
       
@@ -203,4 +163,4 @@ const SubjectForm: React.FC<SubjectFormProps> = ({ subject, teachers, groups, on
   );
 };
 
-export default SubjectForm; 
+export default TeacherForm; 

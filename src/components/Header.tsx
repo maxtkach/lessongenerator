@@ -1,35 +1,37 @@
 import React, { useRef } from 'react';
 import ThemeToggle from './ThemeToggle';
+import SavedSchedulesDropdown from './SavedSchedulesDropdown';
+import { ScheduleItem, Group } from '../App';
 
 interface HeaderProps {
   onSave: () => void;
-  onClear?: () => void;
-  onExport?: () => void;
-  onImport?: (data: string) => void;
-  onGenerate?: () => void;
+  onClear: () => void;
+  onExport: () => void;
+  onImport: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onGenerate: () => void;
+  currentSchedule: ScheduleItem[];
+  onLoadSchedule: (items: ScheduleItem[]) => void;
+  groups?: Group[];
+  selectedGroupId?: string;
+  onGroupSelect?: (groupId: string) => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ onSave, onClear, onExport, onImport, onGenerate }) => {
+const Header: React.FC<HeaderProps> = ({ 
+  onSave, 
+  onClear, 
+  onExport, 
+  onImport, 
+  onGenerate,
+  currentSchedule,
+  onLoadSchedule,
+  groups = [],
+  selectedGroupId,
+  onGroupSelect
+}) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const handleImportClick = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-  
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file && onImport) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
-        onImport(content);
-      };
-      reader.readAsText(file);
-      // Сбрасываем значение input, чтобы можно было загрузить тот же файл повторно
-      event.target.value = '';
-    }
+    fileInputRef.current?.click();
   };
   
   const currentDate = new Date().toLocaleDateString('uk-UA', {
@@ -63,6 +65,20 @@ const Header: React.FC<HeaderProps> = ({ onSave, onClear, onExport, onImport, on
         </div>
 
         <div className="flex items-center space-x-1">
+          {groups.length > 0 && onGroupSelect && (
+            <select
+              value={selectedGroupId || ''}
+              onChange={(e) => onGroupSelect(e.target.value)}
+              className="px-2 py-1 bg-white/20 dark:bg-dark-800/30 text-white rounded text-xs mr-2"
+            >
+              {groups.map(group => (
+                <option key={group._id} value={group._id}>
+                  {group.shortName}
+                </option>
+              ))}
+            </select>
+          )}
+          
           {onGenerate && (
             <button
               onClick={onGenerate}
@@ -89,7 +105,7 @@ const Header: React.FC<HeaderProps> = ({ onSave, onClear, onExport, onImport, on
             </button>
           )}
           
-          {onExport && (
+           {onExport && (
             <button
               onClick={onExport}
               className="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-xs flex items-center"
@@ -109,7 +125,7 @@ const Header: React.FC<HeaderProps> = ({ onSave, onClear, onExport, onImport, on
                 ref={fileInputRef} 
                 style={{ display: 'none' }} 
                 accept=".json"
-                onChange={handleFileChange}
+                onChange={onImport}
               />
               <button
                 onClick={handleImportClick}
@@ -122,9 +138,14 @@ const Header: React.FC<HeaderProps> = ({ onSave, onClear, onExport, onImport, on
                 <span className="hidden sm:inline">Імпорт</span>
               </button>
             </>
-          )}
+          )} 
           
-          <button
+          <SavedSchedulesDropdown 
+            currentSchedule={currentSchedule}
+            onLoadSchedule={onLoadSchedule}
+          />
+          
+          {/* <button
             onClick={onSave}
             className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-xs flex items-center"
             title="Зберегти розклад"
@@ -133,7 +154,7 @@ const Header: React.FC<HeaderProps> = ({ onSave, onClear, onExport, onImport, on
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
             </svg>
             <span className="hidden sm:inline">Зберегти</span>
-          </button>
+          </button> */}
           
           <div className="ml-1 bg-white/20 dark:bg-dark-800/30 backdrop-blur-sm p-1 rounded shadow-sm">
             <ThemeToggle />
