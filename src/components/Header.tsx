@@ -105,7 +105,7 @@ const Header: React.FC<HeaderProps> = ({
             </button>
           )}
           
-           {onExport && (
+           {/* {onExport && (
             <button
               onClick={onExport}
               className="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-xs flex items-center"
@@ -116,7 +116,7 @@ const Header: React.FC<HeaderProps> = ({
               </svg>
               <span className="hidden sm:inline">Експорт</span>
             </button>
-          )}
+          )} */}
           
           {onImport && (
             <>
